@@ -1130,13 +1130,18 @@
             initAutoExecute();
         });
 
+        // Display-only alias; retain metadata keys for API requests and SQL execution.
+        function displayDatabaseName(dbName) {
+            return dbName === 'osm_pa' ? 'SpatialBenchmark' : dbName;
+        }
+
         function buildDatabaseTree() {
             const treeContainer = document.getElementById('databaseTree');
             treeContainer.innerHTML = '';
 
             Object.keys(KNOWLEDGE_GRAPH).forEach(dbName => {
                 const db = KNOWLEDGE_GRAPH[dbName];
-                const dbItem = createTreeItem(dbName, db.description, 'database');
+                const dbItem = createTreeItem(displayDatabaseName(dbName), db.description, 'database');
                 
                 const tablesContainer = document.createElement('div');
                 tablesContainer.className = 'tree-children';
@@ -1626,7 +1631,7 @@
             let databaseOptions = '';
             Object.keys(KNOWLEDGE_GRAPH).forEach(dbName => {
                 const selected = dbName === queryPlan.target_database ? 'selected' : '';
-                databaseOptions += `<option value="${dbName}" ${selected}>${dbName}</option>`;
+                databaseOptions += `<option value="${dbName}" ${selected}>${displayDatabaseName(dbName)}</option>`;
             });
             databaseField.innerHTML = `
                 <label for="plan-database">Database:</label>
