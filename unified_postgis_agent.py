@@ -175,7 +175,7 @@ class UnifiedPostGISService:
     def __init__(self):
         self._sessions: dict[str, Session] = {}
         self._sessions_lock = threading.Lock()
-        self.model = os.getenv("POSTGIS_AGENT_MODEL", "gpt-5.6-luna")
+        self.model = os.getenv("POSTGIS_AGENT_MODEL", "gpt-6-luna")
         self.experience_enabled = os.getenv("POSTGIS_EXPERIENCE_ENABLED", "false").lower() == "true"
         self.skill = (ROOT / "Skills" / "postgis_sql_skill.md").read_text(encoding="utf-8")
 
