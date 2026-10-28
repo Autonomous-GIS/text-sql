@@ -1996,4 +1996,47 @@ class ExperienceManager:
                                 "uniqueItems": True,
                             },
                             "include_candidate": {
-                                "type": "boolean",
+                                "type": "boolean",                            },
+                            "lesson": {
+                                "type": "string",
+                                "maxLength": 500,
+                            },
+                        },
+                        "required": [
+                            "source_ids",
+                            "include_candidate",
+                            "lesson",
+                        ],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["accept_candidate", "items"],
+            "additionalProperties": False,
+        }
+
+    # -------------------------------------------------------------------------
+    # Misc helpers
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _word_count(text: str) -> int:
+        # Whitespace-delimited words matches the intended human-readable limit
+        # and avoids unnecessary tokenizer dependencies.
+        return len(text.split())
+
+    def _log(self, message: str) -> None:
+        if self.show_activity:
+            print(f"[experience] {message}", file=sys.stderr)
+
+
+__all__ = [
+    "ExperienceManager",
+    "ReflectionReport",
+    "DEFAULT_MEMORY_PATH",
+    "MAX_GLOBAL_EXPERIENCES",
+    "MAX_SKILL_EXPERIENCES",
+    "MAX_USER_PREFERENCES",
+    "MAX_APPLICABLE_ITEMS",
+    "MAX_LESSON_WORDS",
+]
