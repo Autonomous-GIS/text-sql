@@ -1,0 +1,6 @@
+myenv/
+DBs/
+Fsrv.ipynb
+nohup.out
+__pycache__/
+*.pyc

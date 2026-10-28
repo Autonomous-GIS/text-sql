@@ -1,0 +1,2123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spatial SQL Assistant</title>
+    <!-- ... (head content and <style> block are unchanged) ... -->
+    <!-- (REMOVED) Deck.gl script -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <style>
+        /* ... (All your existing CSS is unchanged) ... */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-sidebar: #f1f3f4;
+            --bg-sidebar-hover: #e8eaed;
+            --text-primary: #202124;
+            --text-secondary: #5f6368;
+            --border-color: #e8eaed;
+            --input-bg: #f1f3f4;
+            --input-border: #dadce0;
+            --message-ai-bg: #f8f9fa;
+            --button-primary: #1a73e8;
+            --button-hover: #1557b0;
+            --icon-color: #5f6368;
+            --shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+            --button-text: white; /* (NEW) Add this */
+            --button-primary-focus: #1a73e833; /* (NEW) Add this */
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #202124;
+            --bg-secondary: #292a2d;
+            --bg-sidebar: #292a2d;
+            --bg-sidebar-hover: #3c4043;
+            --text-primary: #e8eaed;
+            --text-secondary: #9aa0a6;
+            --border-color: #3c4043;
+            --input-bg: #303134;
+            --input-border: #5f6368;
+            --message-ai-bg: #303134;
+            --button-primary: #8ab4f8;
+            --button-hover: #aecbfa;
+            --icon-color: #9aa0a6;
+            --shadow: 0 1px 2px 0 rgba(0,0,0,0.3), 0 1px 3px 1px rgba(0,0,0,0.15);
+            --button-text: #202124; /* (NEW) Add this override */
+            --button-primary-focus: #8ab4f833; /* (NEW) Add this */
+        }
+
+        body {
+            font-family: 'Google Sans', 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar-trigger {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 30px;
+            height: 100vh;
+            z-index: 998;
+        }
+
+        .sidebar {
+            width: 280px;
+            background-color: var(--bg-sidebar);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            left: -280px;
+            top: 0;
+            height: 100vh;
+            z-index: 999;
+            transition: left 0.3s ease;
+            box-shadow: var(--shadow);
+        }
+
+        .sidebar.pinned {
+            left: 0;
+        }
+
+        .sidebar-collapsed-indicator {
+            position: fixed;
+            left: 12px;
+            top: 12px;
+            width: 40px;
+            height: 40px;
+            z-index: 998;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity 0.3s, background-color 0.2s;
+            border-radius: 50%;
+        }
+
+        .sidebar-collapsed-indicator:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .sidebar-collapsed-indicator.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .sidebar-collapsed-indicator svg {
+            width: 24px;
+            height: 24px;
+            stroke: var(--text-primary);
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .menu-icon {
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background-color 0.2s;
+        }
+
+        .menu-icon:hover {
+            background-color: var(--bg-sidebar-hover);
+        }
+
+        .menu-icon svg {
+            width: 24px;
+            height: 24px;
+            stroke: var(--text-primary);
+        }
+
+        .sidebar-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        /* (NEW) Sidebar Footer Styles */
+        .sidebar-footer {
+            padding: 8px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .settings-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.2s;
+            user-select: none;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .settings-item:hover {
+            background-color: var(--bg-sidebar-hover);
+        }
+
+        .settings-icon {
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .settings-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .settings-icon svg #primary {
+            stroke: var(--text-primary);
+        }
+        .settings-icon svg #secondary {
+            stroke: var(--icon-color);
+        }
+
+        .settings-label {
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+
+        .settings-menu {
+            display: none;
+            padding: 8px 12px 8px 46px; /* Indent from icon */
+        }
+        
+        .settings-menu.visible {
+            display: block;
+        }
+
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .toggle-switch .toggle-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+        }
+
+        .toggle-switch .slider {
+            position: relative;
+            cursor: pointer;
+            width: 40px;
+            height: 20px;
+            background-color: var(--bg-sidebar-hover);
+            border-radius: 10px;
+            transition: .4s;
+            border: 1px solid var(--border-color);
+        }
+
+        .toggle-switch .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 2px;
+            background-color: var(--text-secondary);
+            border-radius: 50%;
+            transition: .4s;
+        }
+
+        .toggle-switch input:checked + .slider {
+            background-color: var(--button-primary);
+        }
+
+        .toggle-switch input:checked + .slider:before {
+            background-color: var(--button-text);
+            transform: translateX(20px);
+        }
+        /* (END NEW) Sidebar Footer Styles */
+
+
+        .tree-item {
+            margin-bottom: 2px;
+        }
+
+        .tree-label {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.2s;
+            user-select: none;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .tree-label:hover {
+            background-color: var(--bg-sidebar-hover);
+        }
+
+        .tree-icon {
+            font-size: 10px;
+            transition: transform 0.2s;
+            color: var(--text-secondary);
+        }
+
+        .tree-icon.expanded {
+            transform: rotate(90deg);
+        }
+
+        .tree-children {
+            margin-left: 16px;
+            display: none;
+            margin-top: 2px;
+        }
+
+        .tree-children.expanded {
+            display: block;
+        }
+
+        .tree-description {
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 6px 12px 8px 36px;
+            line-height: 1.5;
+            display: none;
+        }
+
+        .tree-description.visible {
+            display: block;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-primary);
+            margin-left: 0;
+            transition: margin-left 0.3s ease;
+        }
+
+        .main-content.sidebar-open {
+            margin-left: 280px;
+        }
+
+        .header {
+            padding: 12px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: var(--bg-primary);
+            height: 64px;
+            position: relative;
+        }
+
+        .header-center {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 400;
+            color: var(--text-primary);
+            text-align: center;
+        }
+
+        .theme-toggle {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            position: absolute;
+            right: 24px;
+        }
+
+        .theme-toggle:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .theme-toggle svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--icon-color);
+        }
+
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .message {
+            max-width: 900px;
+            padding: 16px 20px;
+            border-radius: 18px;
+            line-height: 1.6;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background-color: var(--bg-secondary);
+            margin-left: auto;
+            border: 1px solid var(--border-color);
+        }
+
+        .message.ai {
+            align-self: flex-start;
+            background-color: var(--message-ai-bg);
+            position: relative;
+        }
+
+        .message.ai.has-actions {
+            padding-bottom: 52px;
+        }
+
+        .message pre {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            margin: 12px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .message .sql-formatted {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            margin: 12px 0;
+            line-height: 1.5;
+            size: 4;
+        }
+
+        /* (NEW) Style for editable query box */
+        .message [contenteditable="true"].sql-formatted {
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .message [contenteditable="true"].sql-formatted:focus {
+            border-color: var(--button-primary);
+            box-shadow: 0 0 0 2px var(--button-primary-focus);
+        }
+        /* (END NEW) */
+
+
+        .message code {
+            background-color: var(--bg-secondary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .message strong {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .message em {
+            font-style: italic;
+        }
+
+        .message-actions {
+            display: flex;
+            gap: 4px;
+            margin-top: 12px;
+            position: absolute;
+            bottom: 8px;
+            left: 12px;
+        }
+
+        .action-button {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--icon-color);
+            transition: background-color 0.2s;
+            font-size: 18px;
+        }
+
+        .action-button:hover {
+            background-color: var(--bg-sidebar-hover);
+        }
+
+        .action-button svg {
+            width: 20px;
+            height: 20px;
+        }
+        
+        /* (UPDATED) Thumb icon styles */
+        .action-button.liked svg #primary,
+        .action-button.liked svg #secondary {
+            stroke: var(--button-primary);
+        }
+
+        .action-button.disliked svg #primary,
+        .action-button.disliked svg #secondary {
+            stroke: #ea4335; /* Red for dislike */
+        }
+        /* (END UPDATED) */
+
+
+        /* Updated map container for deck.gl canvas rendering */
+        .map-container {
+            width: 900px;
+            max-width: 100%;
+            height: 600px;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 12px 0;
+            border: 1px solid var(--border-color);
+            position: relative;
+            background: var(--bg-secondary);
+        }
+
+        /* (CHANGED) This now styles the Mapbox canvas */
+        .map-container .mapboxgl-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .map-loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-size: 14px;
+            z-index: 10;
+        }
+
+        .map-error {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-secondary);
+            color: #d32f2f;
+            font-size: 14px;
+            text-align: center;
+            padding: 20px;
+            z-index: 10;
+        }
+
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+            margin: 12px 0;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .table-container table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .table-container th {
+            background-color: var(--bg-secondary);
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid var(--border-color);
+            position: sticky;
+            top: 0;
+        }
+
+        .table-container td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .table-container tr:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .input-area {
+            padding: 16px 24px 24px;
+            background-color: var(--bg-primary);
+        }
+
+        .input-container {
+            max-width: 900px;
+            margin: 0 auto;
+            position: relative;
+            display: flex;
+            align-items: center;
+            background-color: var(--input-bg);
+            border: 1px solid var(--input-border);
+            border-radius: 26px;
+            padding: 4px 4px 4px 20px;
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+
+        .input-container:focus-within {
+            box-shadow: var(--shadow);
+            border-color: var(--button-primary);
+        }
+
+        .input-field {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 12px 8px;
+            font-size: 14px;
+            color: var(--text-primary);
+            outline: none;
+            font-family: inherit;
+        }
+
+        .input-field::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .send-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            background-color: var(--button-primary);
+            color: var(--button-text); /* (CHANGED) from white */
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .send-button:hover:not(:disabled) {
+            background-color: var(--button-hover);
+            background-color: rgb(151, 48, 48)
+        }
+
+        .send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background-color: rgb(151, 48, 48)
+        }
+
+        /* Style for the spinning circle border during loading */
+        .send-button.loading::before {
+            content: '';
+            position: absolute;
+            width: 44px;
+            height: 44px;
+            border: 2px solid transparent;
+            border-top-color: rgb(153, 5, 5); /* (CHANGED) from white */
+            border-radius: 80%;
+            animation: spin-circle 1s linear infinite;
+        }
+
+        .send-button svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+            position: relative;
+            z-index: 1;
+        }
+
+        .send-button.loading svg {
+            opacity: 0.3;
+            transition: opacity 0.2s;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes spin-circle {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); } /* (FIXED) Corrected the typo here */
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        @media (max-width: 900px) {
+            .sidebar {
+                left: -280px;
+            }
+
+            .sidebar.pinned {
+                left: 0;
+            }
+
+            .main-content.sidebar-open {
+                margin-left: 0;
+            }
+
+            .message {
+                max-width: 100%;
+            }
+
+            .chat-area {
+                padding: 16px;
+            }
+
+            .input-area {
+                padding: 12px 16px;
+            }
+
+            .header-title {
+                font-size: 14px;
+            }
+
+            .map-container {
+                height: 400px;
+            }
+        }
+
+        .show-more-btn {
+            margin: 12px auto;
+            padding: 8px 16px;
+            background-color: var(--button-primary);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            display: block;
+            transition: background-color 0.2s;
+        }
+
+        .show-more-btn:hover {
+            background-color: var(--button-hover);
+        }
+
+        .table-row-hidden {
+            display: none;
+        }
+
+        .loading-message {
+            opacity: 0.7;
+            font-style: italic;
+        }
+
+        .confirmation-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .confirmation-button {
+            padding: 8px 16px;
+            background-color: var(--button-primary);
+            color: var(--button-text); /* (UPDATED) */
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s, color 0.2s;
+            position: relative; /* (NEW) For spinner */
+        }
+
+        .confirmation-button:hover:not(:disabled) { /* (UPDATED) */
+            background-color: var(--button-hover);
+        }
+        
+        .confirmation-button:disabled { /* (NEW) */
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        /* (REMOVED) Loading spinner for confirmation buttons */
+
+
+        .confirmation-button.secondary {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .confirmation-button.secondary:hover:not(:disabled) { /* (UPDATED) */
+            background-color: var(--bg-sidebar-hover);
+        }
+        
+        /* (REMOVED) Loading spinner for secondary button */
+
+
+        .editable-plan {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+        }
+
+        .plan-field {
+            margin-bottom: 12px;
+        }
+
+        .plan-field label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: var(--text-primary);
+        }
+
+        .plan-field input, .plan-field select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--input-border);
+            border-radius: 4px;
+            background: var(--input-bg);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .plan-field input:focus, .plan-field select:focus {
+            outline: none;
+            border-color: var(--button-primary);
+        }
+        
+        /* (NEW) Style for the workflow button container */
+        .workflow-button-container {
+            margin-top: 16px;
+        }
+
+        /* (NEW) Style for the workflow button itself */
+        .workflow-button-link {
+            display: inline-block;
+            padding: 10px 16px;
+            background-color: #10b981; /* Green color */
+            color: white !important;
+            text-decoration: none;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: background-color 0.2s;
+        }
+        .workflow-button-link:hover {
+            background-color: #0f9d70;
+        }
+
+        /* Add map controls styling */
+        .mapboxgl-ctrl-group {
+            background-color: var(--bg-secondary) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+
+        .mapboxgl-ctrl-group button {
+            background-color: var(--bg-secondary) !important;
+            color: var(--text-primary) !important;
+        }
+
+        .mapboxgl-ctrl-group button:hover {
+            background-color: var(--bg-sidebar-hover) !important;
+        }
+
+        /* Hide non-zoom controls */
+        .mapboxgl-ctrl-fullscreen,
+        .mapboxgl-ctrl-geolocate,
+        .mapboxgl-ctrl-compass,
+        .mapboxgl-ctrl-attribution {
+            display: none !important;
+        }
+
+        .mapboxgl-ctrl-group button:not(.mapboxgl-ctrl-zoom-in):not(.mapboxgl-ctrl-zoom-out) {
+            display: none !important;
+        }
+
+        /* (NEW) Style for Mapbox Popups */
+        .mapboxgl-popup-content {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Google Sans', 'Segoe UI', Roboto, sans-serif;
+            font-size: 13px;
+        }
+        .mapboxgl-popup-close-button {
+            color: var(--text-secondary);
+            font-size: 20px;
+            padding: 4px;
+        }
+        .mapboxgl-popup-tip {
+            border-top-color: var(--bg-primary) !important;
+        }
+
+    </style>
+</head>
+<body>
+    <!-- ... (All your existing HTML body structure is unchanged) ... -->
+    <div class="container">
+        <div class="sidebar-trigger"></div>
+
+        <div class="sidebar-collapsed-indicator" id="sidebarCollapsedIndicator" onclick="toggleSidebarPin()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </div>
+
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="menu-icon" onclick="toggleSidebarPin()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="6" x2="21" y2="6"/>
+                        <line x1="3" y1="12" x2="21" y2="12"/>
+                        <line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                </div>
+                <div class="sidebar-title">Databases</div>
+            </div>
+            <div class="sidebar-content" id="databaseTree"></div>
+            
+            <!-- (NEW) Sidebar Footer -->
+            <div class="sidebar-footer">
+                <div class="settings-item" id="settings-toggle">
+                    <div class="settings-icon">
+                        <svg fill="#000000" width="30" height="30" viewBox="0 0 24 24" id="settings" data-name="Line Color" xmlns="http://www.w3.org/2000/svg" class="icon line-color">
+                            <circle id="secondary" cx="12" cy="12" r="3" style="fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></circle>
+                            <path id="primary" d="M20,10h-.59a1,1,0,0,1-.94-.67v0a1,1,0,0,1,.2-1.14l.41-.41a1,1,0,0,0,0-1.42L17.66,4.93a1,1,0,0,0-1.42,0l-.41.41a1,1,0,0,1-1.14.2h0A1,1,0,0,1,14,4.59V4a1,1,0,0,0-1-1H11a1,1,0,0,0-1,1v.59a1,1,0,0,1-.67.94h0a1,1,0,0,1-1.14-.2l-.41-.41a1,1,0,0,0-1.42,0L4.93,6.34a1,1,0,0,0,0,1.42l.41.41a1,1,0,0,1,.2,1.14v0a1,1,0,0,1-.94.67H4a1,1,0,0,0-1,1v2a1,1,0,0,0,1,1h.59a1,1,0,0,1,.94.67v0a1,1,0,0,1-.2,1.14l-.41.41a1,1,0,0,0,0,1.42l1.41,1.41a1,1,0,0,0,1.42,0l.41-.41a1,1,0,0,1,1.14-.2h0a1,1,0,0,1,.67.94V20a1,1,0,0,0,1,1h2a1,1,0,0,0,1-1v-.59a1,1,0,0,1,.67-.94h0a1,1,0,0,1,1.14.2l.41.41a1,1,0,0,0,1.42,0l1.41-1.41a1,1,0,0,0,0-1.42l-.41-.41a1,1,0,0,1-.2-1.14v0a1,1,0,0,1,.94-.67H20a1,1,0,0,0,1-1V11A1,1,0,0,0,20,10Z" style="fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></path>
+                        </svg>
+                    </div>
+                    <span class="settings-label">Settings</span>
+                </div>
+                <div class="settings-menu" id="settings-menu">
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="auto-execute-toggle" onchange="toggleAutoExecute(this)">
+                        <label for="auto-execute-toggle" class="slider"></label>
+                        <span class="toggle-label">Automatic Execution</span>
+                    </div>
+                </div>
+            </div>
+            <!-- (END NEW) -->
+
+        </div>
+
+        <div class="main-content" id="mainContent">
+            <div class="header">
+                <div class="header-center">
+                    <div class="header-title">From Questions to Queries: A Multi-Agent Framework for Spatial Text-to-SQL</div>
+                </div>
+                <div class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
+                    <svg id="themeIcon" viewBox="0 0 24 24">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </div>
+            </div>
+
+            <div class="chat-area" id="chatArea"></div>
+
+            <div class="input-area">
+                <div class="input-container">
+                    <input 
+                        type="text" 
+                        class="input-field" 
+                        id="messageInput" 
+                        placeholder="Ask spatial SQL assistant"
+                        onkeypress="handleKeyPress(event)"
+                    />
+                    <button class="send-button" id="sendButton" onclick="sendMessage()">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><g id="style=stroke"><g id="message"><path id="vector (Stroke)" fill-rule="evenodd" clip-rule="evenodd" d="M21.1278 6.18259C21.1276 6.1832 21.1275 6.1838 21.1273 6.18441L17.013 19.394C16.2487 21.839 12.8232 21.8798 12.0108 19.4468L12.01 19.4442L10.7875 15.8276C10.3768 14.5745 9.39515 13.6265 8.17816 13.2211C8.17775 13.221 8.17735 13.2208 8.17694 13.2207L4.55221 11.9997C2.12266 11.1855 2.16644 7.74515 4.58179 6.98632C4.58215 6.9862 4.58252 6.98608 4.58289 6.98597L17.8396 2.87816L17.8434 2.87697C19.8553 2.24181 21.755 4.1257 21.1278 6.18259ZM17.3938 1.44593C20.5863 0.439728 23.5345 3.43986 22.5618 6.62281L18.4449 19.8408C17.2516 23.658 11.8683 23.7517 10.5886 19.9234C10.5884 19.9229 10.5882 19.9224 10.5881 19.9219L9.36534 16.3045L9.36293 16.2972C9.10562 15.5095 8.48677 14.9047 7.70334 14.644L7.70072 14.6431L4.07556 13.422C4.07563 13.422 4.07549 13.4219 4.07556 13.422C0.276533 12.1486 0.321192 6.75095 4.13385 5.55475L17.3918 1.44656C17.3925 1.44635 17.3931 1.44614 17.3938 1.44593Z" fill="#ffffff"/></g></g></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ... (All existing JS functions from getUserId() to buildDatabaseTree() are unchanged) ...
+        let KNOWLEDGE_GRAPH = {};
+        let autoExecute = false; // (NEW) Global state for auto-execute
+
+        let currentConversationState = {
+            waitingForFeedback: false,
+            lastSqlQuery: null,
+            lastQuestion: null,
+            currentPlan: null,
+            planStatus: 'no_plan', // 'no_plan', 'plan_ready', 'executing'
+            currentDatabase: null,
+            isLoading: false
+        };
+
+        function getUserId() {
+            let userId = localStorage.getItem('userId');
+            if (!userId) {
+                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('userId', userId);
+            }
+            return userId;
+        }
+
+        const userId = getUserId();
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        }
+
+        function updateThemeIcon(theme) {
+            const icon = document.getElementById('themeIcon');
+            if (theme === 'dark') {
+                icon.innerHTML = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+            } else {
+                icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+            }
+        }
+
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        }
+        
+        // (NEW) Toggle auto-execute
+        function toggleAutoExecute(checkbox) {
+            autoExecute = checkbox.checked;
+            localStorage.setItem('autoExecute', autoExecute);
+        }
+
+        // (NEW) Init auto-execute state from local storage
+        function initAutoExecute() {
+            const saved = localStorage.getItem('autoExecute');
+            autoExecute = saved === 'true';
+            const toggle = document.getElementById('auto-execute-toggle');
+            if (toggle) {
+                toggle.checked = autoExecute;
+            }
+        }
+
+
+        let sidebarPinned = false;
+
+        function toggleSidebarPin() {
+            const sidebar = document.getElementById('sidebar');
+            const indicator = document.getElementById('sidebarCollapsedIndicator');
+            const mainContent = document.getElementById('mainContent');
+            sidebarPinned = !sidebarPinned;
+            
+            if (sidebarPinned) {
+                sidebar.classList.add('pinned');
+                indicator.classList.add('hidden');
+                mainContent.classList.add('sidebar-open');
+            } else {
+                sidebar.classList.remove('pinned');
+                indicator.classList.remove('hidden');
+                mainContent.classList.remove('sidebar-open');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const sidebar = document.getElementById('sidebar');
+            const sidebarTrigger = document.querySelector('.sidebar-trigger');
+            
+            sidebarTrigger.addEventListener('mouseenter', () => {
+                if (!sidebarPinned) {
+                    sidebar.classList.add('pinned');
+                }
+            });
+            
+            sidebar.addEventListener('mouseleave', () => {
+                if (!sidebarPinned) {
+                    sidebar.classList.remove('pinned');
+                }
+            });
+            
+            sidebar.addEventListener('click', (e) => {
+                // (UPDATED) Don't close sidebar if clicking settings
+                if (!e.target.closest('.menu-icon') && !e.target.closest('.sidebar-footer') && !sidebarPinned) {
+                    toggleSidebarPin();
+                }
+            });
+            
+            // (NEW) Add click listener for settings toggle
+            const settingsToggle = document.getElementById('settings-toggle');
+            if (settingsToggle) {
+                settingsToggle.onclick = () => {
+                    document.getElementById('settings-menu').classList.toggle('visible');
+                };
+            }
+            
+            // (NEW) Initialize auto-execute setting
+            initAutoExecute();
+        });
+
+        function buildDatabaseTree() {
+            const treeContainer = document.getElementById('databaseTree');
+            treeContainer.innerHTML = '';
+
+            Object.keys(KNOWLEDGE_GRAPH).forEach(dbName => {
+                const db = KNOWLEDGE_GRAPH[dbName];
+                const dbItem = createTreeItem(dbName, db.description, 'database');
+                
+                const tablesContainer = document.createElement('div');
+                tablesContainer.className = 'tree-children';
+                
+                Object.keys(db.tables).forEach(tableName => {
+                    const table = db.tables[tableName];
+                    const tableItem = createTreeItem(tableName, table.description, 'table');
+                    
+                    const columnsContainer = document.createElement('div');
+                    columnsContainer.className = 'tree-children';
+                    
+                    Object.keys(table.columns).forEach(columnName => {
+                        const columnDesc = table.columns[columnName];
+                        const columnItem = createTreeItem(columnName, columnDesc, 'column');
+                        columnsContainer.appendChild(columnItem);
+                    });
+                    
+                    tableItem.appendChild(columnsContainer);
+                    tablesContainer.appendChild(tableItem);
+                });
+                
+                dbItem.appendChild(tablesContainer);
+                treeContainer.appendChild(dbItem);
+            });
+        }
+
+        function createTreeItem(name, description, type) {
+            const item = document.createElement('div');
+            item.className = 'tree-item';
+            
+            const label = document.createElement('div');
+            label.className = 'tree-label';
+            
+            if (type !== 'column') {
+                const icon = document.createElement('span');
+                icon.className = 'tree-icon';
+                icon.textContent = '▶';
+                label.appendChild(icon);
+            } else {
+                const spacer = document.createElement('span');
+                spacer.style.width = '10px';
+                label.appendChild(spacer);
+            }
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = name;
+            label.appendChild(nameSpan);
+            
+            item.appendChild(label);
+            
+            if (type === 'column') {
+                const descDiv = document.createElement('div');
+                descDiv.className = 'tree-description';
+                descDiv.textContent = description;
+                item.appendChild(descDiv);
+                
+                label.onclick = () => {
+                    descDiv.classList.toggle('visible');
+                };
+            } else {
+                label.onclick = () => {
+                    const icon = label.querySelector('.tree-icon');
+                    const children = item.querySelector('.tree-children');
+                    if (icon && children) {
+                        icon.classList.toggle('expanded');
+                        children.classList.toggle('expanded');
+                    }
+                };
+            }
+            
+            return item;
+        }
+
+        // (UPDATED) Added isHtml flag
+        function addMessage(content, isUser, messageId = null, showActions = false, database = null, isTemporary = false, isHtml = false) {
+            const chatArea = document.getElementById('chatArea');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'ai'}`;
+            
+            if (isTemporary) {
+                messageDiv.classList.add('loading-message');
+            }
+            
+            if (showActions) {
+                messageDiv.classList.add('has-actions');
+            }
+            
+            if (!isUser && messageId) {
+                messageDiv.setAttribute('data-message-id', messageId);
+            }
+            
+            if (database) {
+                messageDiv.setAttribute('data-database', database);
+            }
+            
+            const contentDiv = document.createElement('div');
+            // (UPDATED) Check flag to bypass formatter
+            if (isHtml) {
+                contentDiv.innerHTML = content;
+            } else {
+                contentDiv.innerHTML = formatMessage(content);
+            }
+            messageDiv.appendChild(contentDiv);
+            
+            // This function is too complex to modify without risk.
+            // The logic for adding actions is in `displayGeneratedSql`,
+            // which is what we will use.
+            
+            chatArea.appendChild(messageDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            
+            return messageDiv;
+        }
+
+        function formatMessage(text) {
+            // ... (This function is unchanged) ...
+            if (text.includes('<div class="sql-formatted">')) {
+                return text;
+            }
+            
+            let formatted = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            
+            formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            formatted = formatted.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+            formatted = formatted.replace(/\`\`\`sql\n([\s\S]+?)\n\`\`\`/g, '<pre><code>$1</code></pre>');
+            formatted = formatted.replace(/\`\`\`([\s\S]+?)\`\`\`/g, '<pre><code>$1</code></pre>');
+            formatted = formatted.replace(/`(.+?)`/g, '<code>$1</code>');
+            formatted = formatted.replace(/\n/g, '<br>');
+            
+            return formatted;
+        }
+
+        function isConfirmation(message) {
+            // ... (This function is unchanged) ...
+            const confirmations = ["yes", "y", "ok", "okay", "go ahead", "please do", "confirm", 
+                                   "sure", "absolutely", "of course", "yeah", "yep", "alright",
+                                   "execute", "run it", "show me", "let's see", "proceed"];
+            return confirmations.includes(message.toLowerCase().trim());
+        }
+
+        async function handleFeedback(messageDiv, type) {
+            // ... (This function is unchanged) ...
+            const likeBtn = messageDiv.querySelector('.like-btn');
+            const dislikeBtn = messageDiv.querySelector('.dislike-btn');
+            
+            let feedback = null;
+            
+            if (type === 'like') {
+                if (likeBtn.classList.contains('liked')) {
+                    likeBtn.classList.remove('liked');
+                    feedback = null;
+                } else {
+                    likeBtn.classList.add('liked');
+                    dislikeBtn.classList.remove('disliked');
+                    feedback = 'like';
+                }
+            } else {
+                if (dislikeBtn.classList.contains('disliked')) {
+                    dislikeBtn.classList.remove('disliked');
+                    feedback = null;
+                } else {
+                    dislikeBtn.classList.add('disliked');
+                    likeBtn.classList.remove('liked');
+                    feedback = 'dislike';
+                }
+            }
+
+            if (currentConversationState.lastSqlQuery && feedback) {
+                try {
+                    await fetch('http://128.118.54.16:3000/feedback', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            question: currentConversationState.lastQuestion,
+                            query: currentConversationState.lastSqlQuery,
+                            feedback: feedback,
+                            comment: ''
+                        })
+                    });
+                } catch (error) {
+                    console.error('Error sending feedback:', error);
+                }
+            }
+        }
+
+        function copyMessage(text, button) {
+            // ... (This function is unchanged) ...
+            navigator.clipboard.writeText(text).then(() => {
+                const originalHTML = button.innerHTML;
+                button.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+                setTimeout(() => {
+                    button.innerHTML = originalHTML;
+                }, 1500);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
+        }
+
+        async function executeQuery(messageDiv) {
+            // ... (This function is unchanged) ...
+            const database = messageDiv.getAttribute('data-database');
+            const sqlFormatted = messageDiv.querySelector('.sql-formatted');
+            const outType = messageDiv.getAttribute('out-type');
+            
+            
+            if (!database || !sqlFormatted) {
+                console.error('Missing database or SQL query');
+                return;
+            }
+            
+            const sqlText = sqlFormatted.textContent.trim();
+            
+            if (!sqlText) {
+                console.error('Empty SQL query');
+                return;
+            }
+            
+            const loadingMessage = addMessage('Executing query...', false, null, false, null, true);
+            
+            try {
+                const response = await fetch('http://128.118.54.16:3000/execute-query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        sql: sqlText,
+                        database: database,
+                        outType:outType
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Query execution failed');
+                }
+                
+                const data = await response.json();
+                
+                loadingMessage.remove();
+                
+                if (data.type === 'map' && data.geojson) {
+                    displayGeoJSONMap(data.geojson);
+                } else if (data.type === 'table' && data.table) {
+                    displayTable(data.table);
+                } else if (data.error) {
+                    addMessage(`Error: ${data.error}`, false);
+                } else {
+                    addMessage('Query executed successfully but returned no displayable data.', false);
+                }
+                
+            } catch (error) {
+                console.error('Error executing query:', error);
+                loadingMessage.remove();
+                addMessage('Error executing query. Please check the SQL syntax and try again.', false);
+            }
+        }
+
+        // (REWRITTEN) This function now uses Mapbox GL JS instead of Deck.gl
+        function displayGeoJSONMap(geojson) {
+            const mapContainer = document.createElement('div');
+            mapContainer.className = 'message ai';
+
+            const titleStrong = document.createElement('strong');
+            titleStrong.textContent = 'Query Results (Map):';
+            mapContainer.appendChild(titleStrong);
+
+            const mapDiv = document.createElement('div');
+            mapDiv.className = 'map-container';
+            const mapId = 'map-' + Date.now();
+            mapDiv.id = mapId;
+            mapDiv.style.height = '500px';
+            mapDiv.style.position = 'relative';
+
+            mapContainer.appendChild(mapDiv);
+
+            const chatArea = document.getElementById('chatArea');
+            chatArea.appendChild(mapContainer);
+            chatArea.scrollTop = chatArea.scrollHeight;
+
+            if (!geojson || !geojson.features || geojson.features.length === 0) {
+                mapDiv.textContent = 'No features to display.';
+                return;
+            }
+
+            try {
+                mapboxgl.accessToken = window.MAPBOX_ACCESS_TOKEN || 'YOUR_MAPBOX_ACCESS_TOKEN';
+                const map = new mapboxgl.Map({
+                    container: mapId,
+                    style: 'mapbox://styles/mapbox/light-v10',
+                    center: [0, 0], // Default center, will be overridden by fitBounds
+                    zoom: 1 // Default zoom
+                });
+
+                // Add zoom controls
+                map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+                map.on('load', () => {
+                    const sourceId = 'geojson-data-' + mapId;
+                    
+                    // Add the GeoJSON data as a source
+                    map.addSource(sourceId, {
+                        'type': 'geojson',
+                        'data': geojson
+                    });
+
+                    // Add layer for Polygons
+                    map.addLayer({
+                        'id': sourceId + '-fill',
+                        'type': 'fill',
+                        'source': sourceId,
+                        'paint': {
+                            'fill-color': '#FF0096', // Pinkish
+                            'fill-opacity': 0.4
+                        },
+                        'filter': ['==', '$type', 'Polygon']
+                    });
+
+                    // Add layer for Lines
+                    map.addLayer({
+                        'id': sourceId + '-line',
+                        'type': 'line',
+                        'source': sourceId,
+                        'paint': {
+                            'line-color': '#0000FF', // Blue
+                            'line-width': 2
+                        },
+                        'filter': ['==', '$type', 'LineString']
+                    });
+
+                    // Add layer for Points
+                    map.addLayer({
+                        'id': sourceId + '-circle',
+                        'type': 'circle',
+                        'source': sourceId,
+                        'paint': {
+                            'circle-radius': 6,
+                            'circle-color': '#FF0096',
+                            'circle-stroke-width': 2,
+                            'circle-stroke-color': '#0000FF'
+                        },
+                        'filter': ['==', '$type', 'Point']
+                    });
+
+                    // Fit map to bounds
+                    try {
+                        const bbox = turf.bbox(geojson);
+                        if (bbox.some(isNaN)) {
+                            throw new Error("Turf produced invalid bounding box (NaN).");
+                        }
+                        map.fitBounds(bbox, { padding: 50 });
+                    } catch (e) {
+                        console.error("Could not calculate or fit bounds:", e);
+                        // If bounds fail, map stays at default view
+                    }
+
+                    // Add popups on click
+                    const layers = [sourceId + '-fill', sourceId + '-line', sourceId + '-circle'];
+                    layers.forEach(layerId => {
+                        if (map.getLayer(layerId)) { // Check if layer exists
+                            map.on('click', layerId, (e) => {
+                                if (e.features && e.features.length > 0) {
+                                    const feature = e.features[0];
+                                    // For points, use feature coords. For lines/polygons, use click location.
+                                    const coordinates = (feature.geometry.type === 'Point') 
+                                        ? feature.geometry.coordinates.slice() 
+                                        : e.lngLat;
+                                    const properties = feature.properties;
+                                    
+                                    let popupHTML = '<div style="font-family: monospace; max-height: 200px; overflow-y: auto; font-size: 12px;">';
+                                    for (const key in properties) {
+                                        popupHTML += `<strong>${key}:</strong> ${JSON.stringify(properties[key])}<br>`;
+                                    }
+                                    popupHTML += '</div>';
+
+                                    // Handle longitude wrapping
+                                    while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                                        coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+                                    }
+
+                                    new mapboxgl.Popup()
+                                        .setLngLat(coordinates)
+                                        .setHTML(popupHTML)
+                                        .addTo(map);
+                                }
+                            });
+
+                            // Change cursor to pointer
+                            map.on('mouseenter', layerId, () => {
+                                map.getCanvas().style.cursor = 'pointer';
+                            });
+                            map.on('mouseleave', layerId, () => {
+                                map.getCanvas().style.cursor = '';
+                            });
+                        }
+                    });
+                });
+
+            } catch (error) {
+                console.error("Failed to render Mapbox map:", error);
+                mapDiv.textContent = 'An error occurred while rendering the map.';
+            }
+        }
+
+
+        function displayTable(tableData) {
+            // ... (This function is unchanged) ...
+            if (!tableData || tableData.length === 0) {
+                addMessage('Query returned no results.', false);
+                return;
+            }
+            
+            const columns = Object.keys(tableData[0]);
+            const showPagination = tableData.length > 10;
+            
+            let tableHtml = '<strong>Query Results (Table):</strong><div class="table-container"><table>';
+            tableHtml += '<thead><tr>';
+            columns.forEach(col => {
+                tableHtml += `<th>${col}</th>`;
+            });
+            tableHtml += '</tr></thead><tbody>';
+            
+            tableData.forEach((row, index) => {
+                const rowClass = showPagination && index >= 10 ? 'table-row-hidden' : '';
+                tableHtml += `<tr class="${rowClass}">`;
+                columns.forEach(col => {
+                    const value = row[col];
+                    tableHtml += `<td>${value !== null && value !== undefined ? value : ''}</td>`;
+                });
+                tableHtml += '</tr>';
+            });
+            
+            tableHtml += '</tbody></table>';
+            
+            if (showPagination) {
+                tableHtml += '<button class="show-more-btn" onclick="showAllRows(this)">Show more</button>';
+            }
+            
+            tableHtml += '</div>';
+            
+            const tableContainer = document.createElement('div');
+            tableContainer.className = 'message ai';
+            tableContainer.innerHTML = tableHtml;
+            
+            const chatArea = document.getElementById('chatArea');
+            chatArea.appendChild(tableContainer);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function showAllRows(button) {
+            // ... (This function is unchanged) ...
+            const tableContainer = button.closest('.table-container');
+            const hiddenRows = tableContainer.querySelectorAll('.table-row-hidden');
+            hiddenRows.forEach(row => {
+                row.classList.remove('table-row-hidden');
+            });
+            button.style.display = 'none';
+        }
+
+        function showPlanConfirmation(queryPlan) {
+            const confirmationDiv = document.createElement('div');
+            confirmationDiv.className = 'message ai';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.innerHTML = `<strong>Query Plan Ready:</strong><br><br>`;
+            
+            const editablePlanDiv = document.createElement('div');
+            editablePlanDiv.className = 'editable-plan';
+            
+            // Question field
+            const questionField = document.createElement('div');
+            questionField.className = 'plan-field';
+            questionField.innerHTML = `
+                <label for="plan-question">Question:</label>
+                <input type="text" id="plan-question" value="${queryPlan.clear_question}" placeholder="Enter your question">
+            `;
+            editablePlanDiv.appendChild(questionField);
+            
+            // Database field (dropdown)
+            const databaseField = document.createElement('div');
+            databaseField.className = 'plan-field';
+            let databaseOptions = '';
+            Object.keys(KNOWLEDGE_GRAPH).forEach(dbName => {
+                const selected = dbName === queryPlan.target_database ? 'selected' : '';
+                databaseOptions += `<option value="${dbName}" ${selected}>${dbName}</option>`;
+            });
+            databaseField.innerHTML = `
+                <label for="plan-database">Database:</label>
+                <select id="plan-database">
+                    ${databaseOptions}
+                </select>
+            `;
+            editablePlanDiv.appendChild(databaseField);
+            
+            // Output type field (dropdown)
+            const outputField = document.createElement('div');
+            outputField.className = 'plan-field';
+            const tableSelected = queryPlan.representation_type === 'table' ? 'selected' : '';
+            const mapSelected = queryPlan.representation_type === 'map' ? 'selected' : '';
+            outputField.innerHTML = `
+                <label for="plan-output">Output Type:</label>
+                <select id="plan-output">
+                    <option value="table" ${tableSelected}>Table</option>
+                    <option value="map" ${mapSelected}>Map</option>
+                </select>
+            `;
+            editablePlanDiv.appendChild(outputField);
+            
+            contentDiv.appendChild(editablePlanDiv);
+            contentDiv.appendChild(document.createElement('br'));
+            
+            // (NEW) Add container for the workflow button
+            const workflowBtnContainer = document.createElement('div');
+            workflowBtnContainer.className = 'workflow-button-container';
+            workflowBtnContainer.id = 'workflow-button-container-' + Date.now(); // Unique ID
+            contentDiv.appendChild(workflowBtnContainer);
+            
+            contentDiv.appendChild(document.createElement('br'));
+            contentDiv.appendChild(document.createTextNode('Would you like me to generate and execute the SQL query?'));
+            
+            const buttonContainer = document.createElement('div');
+            buttonContainer.className = 'confirmation-buttons';
+            
+            const generateBtn = document.createElement('button');
+            generateBtn.textContent = 'Generate SQL';
+            generateBtn.className = 'confirmation-button secondary';
+            // (UPDATED) Removed button container from handler
+            generateBtn.onclick = () => generateSqlForCurrentPlan(workflowBtnContainer.id);
+            
+            const executeBtn = document.createElement('button');
+            executeBtn.textContent = 'Generate & Execute';
+            executeBtn.className = 'confirmation-button';
+            // (UPDATED) Removed button container from handler
+            executeBtn.onclick = () => generateAndExecuteCurrentPlan(workflowBtnContainer.id);
+            
+            buttonContainer.appendChild(generateBtn);
+            buttonContainer.appendChild(executeBtn);
+            
+            contentDiv.appendChild(buttonContainer);
+            confirmationDiv.appendChild(contentDiv);
+            
+            const chatArea = document.getElementById('chatArea');
+            chatArea.appendChild(confirmationDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+
+            const questionInput = document.getElementById('plan-question');
+            const databaseSelect = document.getElementById('plan-database');
+            const outputSelect = document.getElementById('plan-output');
+
+            const updatePlanOnChange = () => {
+                currentConversationState.currentPlan = {
+                    clear_question: questionInput.value,
+                    target_database: databaseSelect.value,
+                    representation_type: outputSelect.value
+                };
+            };
+
+            if (questionInput) {
+                questionInput.addEventListener('input', updatePlanOnChange);
+                questionInput.addEventListener('change', updatePlanOnChange);
+            }
+            if (databaseSelect) {
+                databaseSelect.addEventListener('change', updatePlanOnChange);
+            }
+            if (outputSelect) {
+                outputSelect.addEventListener('change', updatePlanOnChange);
+            }
+        }
+        
+        /* (UPDATED) This function now handles button loading state
+         * It also resets the global isLoading state in its finally block
+         */
+        async function startSqlStreaming(plan, containerId, executeOnComplete = false) {
+            if (!plan) return;
+
+            // --- 1. Get form data ---
+            const question = plan.clear_question;
+            const database = plan.target_database;
+            
+            // --- 2. Create a unique ID for this run ---
+            const runId = "workflow_" + Date.now();
+
+            // --- 3. Create the "View Workflow" button ---
+            const buttonContainer = document.getElementById(containerId);
+            if (buttonContainer) {
+                buttonContainer.innerHTML = `
+                    <a href="workflow.html?runId=${runId}" 
+                       target="_blank" 
+                       class="workflow-button-link">
+                       View Live Workflow
+                    </a>
+                `;
+            }
+            
+            // (NEW) Set main sendButton loading state
+            const sendButton = document.getElementById('sendButton');
+            sendButton.disabled = true;
+            sendButton.classList.add('loading');
+            
+
+            // --- 4. Connect to the NEW streaming endpoint ---
+            let finalSqlData = null; // Store final SQL data
+            let finalMessageDiv = null; // Store the message div for execution
+            
+            try {
+                // (MODIFIED) 1. Initialize an empty history for this run
+                localStorage.setItem(runId, JSON.stringify([]));
+
+                const response = await fetch('http://128.118.54.16:3000/generate-sql-stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream'
+                    },
+                    body: JSON.stringify({
+                        question: question,
+                        database: database,
+                        user_id: userId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        console.log("Stream finished.");
+                        break;
+                    }
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    
+                    let eolIndex;
+                    while ((eolIndex = buffer.indexOf('\n\n')) >= 0) {
+                        const message = buffer.substring(0, eolIndex).trim();
+                        buffer = buffer.substring(eolIndex + 2);
+
+                        if (message.startsWith('data: ')) {
+                            const data = message.substring(6); // This is a JSON string
+                            
+                            // --- 5. (MODIFIED) Broadcast by updating the run's history ---
+                            // Get current history, add new event, save it back.
+                            // This action is what the workflow.html tab will listen for.
+                            const history = JSON.parse(localStorage.getItem(runId) || '[]');
+                            history.push(data); // Push the raw JSON string
+                            localStorage.setItem(runId, JSON.stringify(history));
+
+                            // --- 6. Handle the data on *this* (main) page ---
+                            const parsedData = JSON.parse(data);
+                            
+                            if (parsedData.node === 'FINAL') {
+                                // This is the final SQL! Display it.
+                                finalSqlData = {
+                                    sql_query: parsedData.sql_query,
+                                    formatted_sql: parsedData.formatted_sql // Get pre-formatted SQL from server
+                                };
+                                
+                                if (parsedData.status === 'valid') {
+                                    finalMessageDiv = displayGeneratedSql(finalSqlData, plan);
+                                    currentConversationState.lastSqlQuery = parsedData.sql_query;
+                                    currentConversationState.lastQuestion = plan.clear_question;
+                                } else {
+                                    addMessage("Failed to generate a valid query.", false);
+                                }
+
+                                // (NEW) Silently send the "Let's start fresh" message
+                                try {
+                                    // We send this message but do not await it or show its response.
+                                    fetch('http://128.118.54.16:3000/chat', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            user_id: userId,
+                                            message: "Received, Let's start fresh."
+                                        })
+                                    });
+                                    // No response handling, as requested by the user.
+                                } catch (error) {
+                                    console.error("Error sending silent reset message:", error);
+                                    // Do not show this error to the user.
+                                }
+
+
+                            } else if (parsedData.node === 'ERROR') {
+                                console.error("Server-side error:", parsedData.result);
+                                addMessage(`Error: ${parsedData.result}`, false);
+                            }
+                        }
+                    }
+                }
+
+                // --- 7. Execute if needed AFTER stream is complete ---
+                if (executeOnComplete && finalMessageDiv) {
+                    // Short delay to ensure UI is updated
+                    setTimeout(() => {
+                        executeQuery(finalMessageDiv);
+                    }, 500);
+                }
+
+            } catch (error) {
+                console.error('Failed to connect to workflow stream:', error);
+                addMessage(`Connection error: ${error.message}`, false);
+            } finally {
+                // (UPDATED) Reset main sendButton loading state AND global state
+                sendButton.disabled = false;
+                sendButton.classList.remove('loading');
+                currentConversationState.isLoading = false; // <-- THIS FIXES THE BUTTON BUG
+            }
+        }
+
+        // (UPDATED) Pass button container to streaming function
+        async function generateSqlForCurrentPlan(containerId) {
+            if (!currentConversationState.currentPlan) return;
+            // Call the new streaming function, don't execute
+            startSqlStreaming(currentConversationState.currentPlan, containerId, false);
+        }
+
+        // (UPDATED & FIXED) Pass button container to streaming function
+        async function generateAndExecuteCurrentPlan(containerId) {
+            if (!currentConversationState.currentPlan) return;
+            // Call the new streaming function, DO execute
+            startSqlStreaming(currentConversationState.currentPlan, containerId, true);
+        }
+
+
+        function displayGeneratedSql(sqlData, plan) {
+            // ... (This function is unchanged) ...
+            console.log(plan)
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message ai has-actions';
+            messageDiv.setAttribute('data-message-id', Date.now().toString());
+            messageDiv.setAttribute('data-database', plan.target_database);
+            messageDiv.setAttribute('out-type', plan.representation_type);
+            
+            
+            const contentDiv = document.createElement('div');
+            const titleStrong = document.createElement('strong');
+            titleStrong.textContent = 'Generated SQL Query:';
+            contentDiv.appendChild(titleStrong);
+            contentDiv.appendChild(document.createElement('br'));
+            contentDiv.appendChild(document.createElement('br'));
+            
+            if (sqlData.formatted_sql) {
+                const sqlDiv = document.createElement('div');
+                sqlDiv.className = 'sql-formatted';
+                sqlDiv.innerHTML = sqlData.formatted_sql;
+                sqlDiv.contentEditable = "true"; // (UPDATED) Make editable
+                contentDiv.appendChild(sqlDiv);
+            } else {
+                const preElement = document.createElement('pre');
+                preElement.contentEditable = "true"; // (UPDATED) Make editable
+                preElement.className = 'sql-formatted'; // (UPDATED) Add class for consistent styling/selection
+                
+                const codeElement = document.createElement('code');
+                codeElement.textContent = sqlData.sql_query;
+                preElement.appendChild(codeElement);
+                contentDiv.appendChild(preElement);
+            }
+            
+            messageDiv.appendChild(contentDiv);
+            
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'message-actions';
+            
+            const likeBtn = document.createElement('button');
+            likeBtn.className = 'action-button like-btn';
+            likeBtn.innerHTML = `<svg fill="#000000" width="20" height="20" viewBox="0 0 24 24" id="like" data-name="Line Color" xmlns="http://www.w3.org/2000/svg" class="icon line-color"><path id="primary" d="M7.25,20.12a9.47,9.47,0,0,0,4,.88h4.2a4,4,0,0,0,3.88-3l1.62-6.48A2,2,0,0,0,19,9H16a31.13,31.13,0,0,0,.12-3.77A2.28,2.28,0,0,0,13.82,3h-.05a2.2,2.2,0,0,0-2.15,1.72c-.36,1.5-.74,2.83-1.11,3.92A2,2,0,0,1,8.62,10H7.2" style="fill: none; stroke: rgb(0, 0, 0); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></path><rect id="secondary" x="3" y="9" width="4" height="12" style="fill: none; stroke: rgb(44, 169, 188); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></rect></svg>`;
+            likeBtn.title = 'Good result';
+            likeBtn.onclick = () => handleFeedback(messageDiv, 'like');
+            actionsDiv.appendChild(likeBtn);
+            
+            const dislikeBtn = document.createElement('button');
+            dislikeBtn.className = 'action-button dislike-btn';
+            dislikeBtn.innerHTML = `<svg fill="#000000" width="20" height="20" viewBox="0 0 24 24" id="dislike" data-name="Line Color" xmlns="http://www.w3.org/2000/svg" class="icon line-color"><path id="primary" d="M7.08,14H8.62a2,2,0,0,1,1.89,1.36c.37,1.09,.75,2.42,1.11,3.92A2.2,2.2,0,0,0,13.77,21h.05a2.28,2.28,0,0,0,2.29-2.23A31.13,31.13,0,0,0,16,15h3a2,2,0,0,0,1.94-2.48L19.32,6a4,4,0,0,0-3.88-3h-4.2a9.53,9.53,0,0,0-4.13.94" style="fill: none; stroke: rgb(0, 0, 0); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></path><rect id="secondary" x="3" y="3" width="4" height="12" style="fill: none; stroke: rgb(44, 169, 188); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></rect></svg>`;
+            dislikeBtn.title = 'Bad result';
+            dislikeBtn.onclick = () => handleFeedback(messageDiv, 'dislike');
+            actionsDiv.appendChild(dislikeBtn);
+            
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'action-button copy-btn';
+            copyBtn.innerHTML = '<svg fill="#000000" width="20" height="20" viewBox="0 0 24 24" id="copy" data-name="Line Color" xmlns="http://www.w3.org/2000/svg" class="icon line-color"><path id="secondary" d="M5,6V20a1,1,0,0,0,1,1H16" style="fill: none; stroke: rgb(44, 169, 188); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></path><polygon id="primary" points="19 6 19 17 9 17 9 3 16 3 19 6" style="fill: none; stroke: rgb(0, 0, 0); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></polygon></svg>';
+            copyBtn.title = 'Copy';
+            copyBtn.onclick = () => copyMessage(sqlData.sql_query, copyBtn);
+            actionsDiv.appendChild(copyBtn);
+            
+            const executeBtn = document.createElement('button');
+            executeBtn.className = 'action-button execute-btn';
+            executeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+            executeBtn.title = 'Execute';
+            executeBtn.onclick = () => executeQuery(messageDiv);
+            actionsDiv.appendChild(executeBtn);
+            
+            messageDiv.appendChild(actionsDiv);
+            
+            const chatArea = document.getElementById('chatArea');
+            chatArea.appendChild(messageDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            
+            return messageDiv;
+        }
+
+        async function sendMessage() {
+            // (UPDATED) To handle auto-execute and button loading
+            const input = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+            const message = input.value.trim();
+            
+            if (!message || currentConversationState.isLoading) return; // (UPDATED) Check global loading state
+            
+            addMessage(message, true);
+            input.value = '';
+            sendButton.disabled = true;
+
+            currentConversationState.isLoading = true; // Set global loading state
+            sendButton.classList.add('loading');
+            
+            try {
+                // CHECK IF THIS IS A CONFIRMATION OF EXISTING PLAN
+                if (currentConversationState.planStatus === 'plan_ready' && isConfirmation(message)) {
+                    // User is confirming - execute the existing plan directly
+                    
+                    // (MODIFIED) Find the unique container ID and button container
+                    const chatArea = document.getElementById('chatArea');
+                    const wfContainer = chatArea.querySelector('.workflow-button-container:last-of-type');
+                    const containerId = wfContainer ? wfContainer.id : null;
+                    
+                    // (UPDATED) Call function - it will handle the sendButton loading state
+                    await generateAndExecuteCurrentPlan(containerId); 
+                    
+                    // (REMOVED) sendButton state is now handled by startSqlStreaming
+                    return;
+                }
+                
+                // Otherwise proceed with normal chat flow
+                const response = await fetch('http://128.118.54.16:3000/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        message: message
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Server error');
+                }
+                
+                const data = await response.json();
+                
+                if (data.response) {
+                    const messageId = Date.now().toString();
+                    addMessage(data.response, false, messageId, false);
+                }
+                
+                // (UPDATED) HANDLE PLAN READY WITH AUTO-EXECUTE TOGGLE
+                if (data.status === 'plan_ready' && data.query_plan) {
+                    // Store the plan
+                    currentConversationState.currentPlan = data.query_plan;
+                    currentConversationState.planStatus = 'plan_ready';
+                    currentConversationState.currentDatabase = data.query_plan.target_database;
+                    
+                    if (autoExecute) {
+                        // Auto-execute is ON
+                        const plan = data.query_plan;
+                        // (UPDATED) Create detailed auto-execute message
+                        let autoMsgContent = `
+                            <strong>Query Plan (Auto-Executing):</strong><br>
+                            <div style="padding-left: 10px; margin-top: 5px;">
+                                <strong>Question:</strong> ${plan.clear_question}<br>
+                                <strong>Database:</strong> ${plan.target_database}<br>
+                                <strong>Output Type:</strong> ${plan.representation_type}
+                            </div>
+                        `;
+                        // (UPDATED) Pass 'true' for the new isHtml flag
+                        const autoMsg = addMessage(autoMsgContent, false, null, false, null, false, true);
+                        
+                        // (UPDATED) Create and append workflow container
+                        const workflowBtnContainer = document.createElement('div');
+                        workflowBtnContainer.className = 'workflow-button-container';
+                        workflowBtnContainer.id = 'workflow-button-container-' + Date.now();
+                        
+                        // Find the content div inside the message and append the container
+                        const contentDiv = autoMsg.querySelector('div'); // Get the inner content div
+                        if (contentDiv) {
+                            contentDiv.appendChild(workflowBtnContainer);
+                        } else {
+                            autoMsg.appendChild(workflowBtnContainer); // Fallback
+                        }
+
+                        // (UPDATED) Call function - it will handle the sendButton loading state
+                        await generateAndExecuteCurrentPlan(workflowBtnContainer.id); 
+                    
+                    } else {
+                        // Auto-execute is OFF. Show confirmation prompt
+                        showPlanConfirmation(data.query_plan);
+                        // (NEW) Since no streaming is happening yet, stop the loading
+                        sendButton.disabled = false;
+                        currentConversationState.isLoading = false;
+                        sendButton.classList.remove('loading');
+                    }
+                
+                } else if (data.status === 'execute_plan' && data.query_plan) {
+                    // Backend indicates we should execute the plan
+                    currentConversationState.currentPlan = data.query_plan;
+                    
+                    // (MODIFIED) Find the unique container ID
+                    const chatArea = document.getElementById('chatArea');
+                    const wfContainer = chatArea.querySelector('.workflow-button-container:last-of-type');
+                    const containerId = wfContainer ? wfContainer.id : null;
+                    
+                    // (UPDATED) Call function - it will handle the sendButton loading state
+                    await generateAndExecuteCurrentPlan(containerId);
+                
+                } else if (data.status === 'clarification_needed') {
+                    // Reset plan state if we need more info
+                    currentConversationState.planStatus = 'no_plan';
+                    currentConversationState.currentPlan = null;
+                    // (NEW) Stop loading
+                    sendButton.disabled = false;
+                    currentConversationState.isLoading = false;
+                    sendButton.classList.remove('loading');
+                } else {
+                    // Reset plan state for other responses
+                    currentConversationState.planStatus = 'no_plan';
+                    currentConversationState.currentPlan = null;
+                    // (NEW) Stop loading
+                    sendButton.disabled = false;
+                    currentConversationState.isLoading = false;
+                    sendButton.classList.remove('loading');
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage('Sorry, I encountered an error connecting to the server. Please make sure the Flask server is running on http://128.118.54.16:3000', false);
+                // (NEW) Stop loading on error
+                sendButton.disabled = false;
+                currentConversationState.isLoading = false;
+                sendButton.classList.remove('loading');
+            } 
+            // (REMOVED) Finally block is removed, loading is handled in each branch
+        }
+
+        function handleKeyPress(event) {
+            // ... (This function is unchanged) ...
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        initTheme();
+        async function fetchKnowledgeGraph() {
+            // ... (This function is unchanged) ...
+            try {
+                const response = await fetch('http://128.118.54.16:3000/knowledge-graph');
+                if (response.ok) {
+                    const data = await response.json();
+                    KNOWLEDGE_GRAPH = data.knowledge_graph;
+                    buildDatabaseTree();
+                } else {
+                    console.error('Failed to fetch knowledge graph');
+                }
+            } catch (error) {
+                console.error('Error fetching knowledge graph:', error);
+            }
+        }
+
+        fetchKnowledgeGraph();
+        addMessage('Hello! I\'m your Spatial SQL Assistant. Ask me anything about the available databases.', false);
+    </script>
+</body>
+</html>

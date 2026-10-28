@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Workflow Diagram</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden; /* Body scroll is hidden */
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    
+    #canvas {
+      display: block;
+      background: linear-gradient(to bottom, #f8fafc, #e2e8f0);
+      /* (NEW) Ensure canvas doesn't go under the log box */
+      height: calc(100vh - 200px); 
+    }
+    
+    .node {
+      position: absolute;
+      cursor: move;
+      user-select: none;
+      transition: transform 0.1s ease;
+    }
+    
+    .node:hover {
+      transform: scale(1.05);
+      z-index: 1000;
+    }
+    
+    .node.dragging {
+      opacity: 0.8;
+      z-index: 1001;
+    }
+    
+    .node-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .node-icon {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: white;
+      border: 3px solid #3b82f6; /* Default blue border */
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      transition: border-color 0.3s ease;
+      position: relative; 
+    }
+    
+    .node-icon.has-result {
+      border-color: #10b981; /* Green border for completed */
+      box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+    }
+
+    @keyframes spin-wait {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .node-icon.is-waiting {
+      border-color: #f59e0b; /* Yellow border (Tailwind amber-500) */
+    }
+
+    .node-icon.is-waiting::before {
+      content: '';
+      position: absolute;
+      width: 86px; 
+      height: 86px;
+      border-radius: 50%;
+      
+      border: 4px solid transparent;
+      border-top-color: #f59e0b;
+      border-left-color: #f59e0b;
+      
+      animation: spin-wait 0.8s linear infinite;
+    }
+
+    
+    .node-icon img {
+      width: 70px;
+      height: 70px;
+      object-fit: contain;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-drag: none;
+      -moz-user-select: none;
+      -webkit-user-select: none;
+      -ms-user-select: none;
+    }
+    
+    .node-icon span {
+      font-size: 36px;
+    }
+    
+    .node-label {
+      font-weight: 600;
+      font-size: 14px;
+      color: #1e293b;
+      background: white;
+      padding: 4px 12px;
+      border-radius: 12px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .info-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      max-width: 300px;
+    }
+    
+    .info-panel h3 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    
+    .info-panel p {
+      margin: 0;
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+    
+    .legend {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: #475569;
+    }
+    
+    .legend-item:last-child {
+      margin-bottom: 0;
+    }
+    
+    .legend-line {
+      width: 30px;
+      height: 2px;
+      background: #3b82f6;
+    }
+    
+    .legend-line.bidirectional::after {
+      content: '↔';
+      position: relative;
+      left: -15px;
+      color: #3b82f6;
+    }
+    
+    .tooltip {
+      position: absolute;
+      background: rgba(30, 41, 59, 0.95);
+      color: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      max-width: 400px;
+      max-height: 300px;
+      overflow-y: auto;
+      /* (MODIFIED) Allow clicks on the tooltip itself (for scrolling) */
+      pointer-events: auto; 
+      z-index: 2000;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      display: none;
+      line-height: 1.5;
+    }
+
+    /* (MODIFIED) Don't allow hover events on the tooltip when it's not pinned */
+    .tooltip:not(.is-pinned) {
+        pointer-events: none;
+    }
+    
+    .tooltip.show {
+      display: block;
+    }
+    
+    .tooltip-title {
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #60a5fa;
+      border-bottom: 1px solid rgba(96, 165, 250, 0.3);
+      padding-bottom: 4px;
+    }
+    
+    /* (MODIFIED) Tooltip content styling */
+    .tooltip-content {
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+    }
+    .tooltip-content strong {
+        font-weight: bold;
+        color: #93c5fd; /* light blue */
+    }
+    .tooltip-content em {
+        font-style: italic;
+        color: #a5b4fc; /* light purple */
+    }
+    .tooltip-content code {
+      background-color: #374151; /* gray-700 */
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-size: 10px;
+    }
+    .tooltip-content br {
+        content: "";
+        display: block;
+        margin-bottom: 0.5em;
+    }
+    /* (END MODIFIED) */
+
+
+    /* Log container styles */
+    #log-container {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 300px;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(4px);
+      border-top: 1px solid #cbd5e1;
+      box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+      overflow-y: auto;
+      padding: 8px;
+      padding-top: 1px;
+      font-family: 'Inter', sans-serif;
+      z-index: 1500;
+    }
+
+    .log-title {
+      font-weight: 700;
+      font-size: 16px;
+      color: #1e293b;
+      padding: 4px 8px;
+      border-bottom: 2px solid #e2e8f0;
+      margin-bottom: 8px;
+      position: sticky;
+      top: 0;
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    .log-entry {
+      font-size: 13px;
+      color: #334155;
+      padding: 6px 8px;
+      border-bottom: 1px solid #e2e8f0;
+      line-height: 1.6;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    .log-entry strong {
+      font-weight: 600;
+      color: #1e293b;
+    }
+    
+    .log-entry code {
+      background-color: #e2e8f0;
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+    }
+    
+    .log-entry em {
+      font-style: italic;
+    }
+    /* (END NEW) */
+
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  
+  <div class="info-panel">
+    <h3>Query Generation Process</h3>
+    <p>The visualization aims to make the process more explainable</p>
+  </div>
+  
+  
+  <div id="nodes-container"></div>
+  <div id="tooltip" class="tooltip">
+    <div class="tooltip-title"></div>
+    <div class="tooltip-content"></div>
+  </div>
+
+  <!-- Log container -->
+  <div id="log-container">
+    <div class="log-title">Live Event Log</div>
+  </div>
+
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const nodesContainer = document.getElementById('nodes-container');
+    const tooltip = document.getElementById('tooltip');
+    const logContainer = document.getElementById('log-container'); 
+    
+    let pinnedTooltipNodeId = null; // State for pinned tooltip
+
+    // Node definitions with initial positions
+    const nodes = {
+      question: {
+        x: 100,
+        y: 200,
+        label: 'Question',
+        type: 'question',
+        icon: '❓'
+      },
+      eea: {
+        x: 500,
+        y: 200,
+        label: 'EEA',
+        type: 'agent',
+        image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/ag-bQ4F1TE7oGsJd6lxkuZiYFC3cIRzcj.png'
+      },
+      mra: {
+        x: 700,
+        y: 300,
+        label: 'MRA',
+        type: 'agent',
+        image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/ag-bQ4F1TE7oGsJd6lxkuZiYFC3cIRzcj.png'
+      },
+      knowledgeBase: {
+        x: 500,
+        y: 450,
+        label: 'Knowledge Base',
+        type: 'knowledge',
+        icon: '📚'
+      },
+      Orchestration: {
+        x: 300,
+        y: 200,
+        label: 'Orchestration',
+        type: 'knowledge',
+        icon: '⚙️'
+      },
+      Memory: {
+        x: 300,
+        y: 450,
+        label: 'Memory',
+        type: 'knowledge',
+        icon: '💾'
+      },
+      qla: {
+        x: 900,
+        y: 200,
+        label: 'QLA',
+        type: 'agent',
+        image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/ag-bQ4F1TE7oGsJd6lxkuZiYFC3cIRzcj.png'
+      },
+      sqla: {
+        x: 1100,
+        y: 300,
+        label: 'SQLA',
+        type: 'agent',
+        image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/ag-bQ4F1TE7oGsJd6lxkuZiYFC3cIRzcj.png'
+      },
+      ra: {
+        x: 1100,
+        y: 450,
+        label: 'RA',
+        type: 'agent',
+        image: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/ag-bQ4F1TE7oGsJd6lxkuZiYFC3cIRzcj.png'
+      },
+      sql: {
+        x: 1300,
+        y: 450,
+        label: 'SQL',
+        type: 'sql',
+        icon: '🗄️'
+      }
+    };
+    
+    // Connection definitions
+    const connections = [
+      { from: 'Orchestration', to: 'eea', bidirectional: false },
+      { from: 'eea', to: 'mra', bidirectional: false },
+      { from: 'mra', to: 'knowledgeBase', bidirectional: true },
+      { from: 'mra', to: 'qla', bidirectional: true },
+      { from: 'mra', to: 'sqla', bidirectional: false },
+      { from: 'qla', to: 'sqla', bidirectional: false },
+      { from: 'sqla', to: 'ra', bidirectional: false },
+      { from: 'ra', to: 'sql', bidirectional: false },
+      { from: 'knowledgeBase', to: 'ra', bidirectional: false },
+      { from: 'question', to: 'Orchestration', bidirectional: false },
+      { from: 'Memory', to: 'Orchestration', bidirectional: true },
+      { from: 'Memory', to: 'knowledgeBase', bidirectional: true },
+    ];
+    
+    const agentFlow = ['question', 'eea', 'mra', 'qla', 'sqla', 'ra', 'sql'];
+
+    // Draw arrow
+    function drawArrow(fromX, fromY, toX, toY, bidirectional = false) {
+      const headLength = 12;
+      const angle = Math.atan2(toY - fromY, toX - fromX);
+      
+      // Draw line
+      ctx.beginPath();
+      ctx.moveTo(fromX, fromY);
+      ctx.lineTo(toX, toY);
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      // Draw arrowhead at 'to' end
+      ctx.beginPath();
+      ctx.moveTo(toX, toY);
+      ctx.lineTo(
+        toX - headLength * Math.cos(angle - Math.PI / 6),
+        toY - headLength * Math.sin(angle - Math.PI / 6)
+      );
+      ctx.lineTo(
+        toX - headLength * Math.cos(angle + Math.PI / 6),
+        toY - headLength * Math.sin(angle + Math.PI / 6)
+      );
+      ctx.closePath();
+      ctx.fillStyle = '#3b82f6';
+      ctx.fill();
+      
+      // Draw arrowhead at 'from' end if bidirectional
+      if (bidirectional) {
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(
+          fromX + headLength * Math.cos(angle - Math.PI / 6),
+          fromY + headLength * Math.sin(angle - Math.PI / 6)
+        );
+        ctx.lineTo(
+          fromX + headLength * Math.cos(angle + Math.PI / 6),
+          fromY + headLength * Math.sin(angle + Math.PI / 6)
+        );
+        ctx.closePath();
+        ctx.fillStyle = '#3b82f6';
+        ctx.fill();
+      }
+    }
+    
+    // Draw all connections
+    function drawConnections() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      connections.forEach(conn => {
+        const fromNode = nodes[conn.from];
+        const toNode = nodes[conn.to];
+        
+        if (fromNode && toNode) {
+          // Calculate connection points (from edge of circles)
+          const dx = toNode.x - fromNode.x;
+          const dy = toNode.y - fromNode.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          const radius = 40;
+          
+          const fromX = fromNode.x + (dx / distance) * radius;
+          const fromY = fromNode.y + (dy / distance) * radius;
+          const toX = toNode.x - (dx / distance) * radius;
+          const toY = toNode.y - (dy / distance) * radius;
+          
+          drawArrow(fromX, fromY, toX, toY, conn.bidirectional);
+        }
+      });
+    }
+    
+    // Set canvas size
+    function resizeCanvas() {
+      // Adjust canvas height based on log container
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight - 200; // 200px is log height
+      drawConnections();
+    }
+    
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+    
+    const nodeResults = {
+      question: null,
+      eea: null,
+      mra: null,
+      qla: null,
+      sqla: null,
+      ra: null,
+      sql: null
+    };
+    
+    // Helper to format log text (basic markdown)
+    // This is used for BOTH logs and tooltips
+    function simpleMarkdownParser(text) {
+        if (typeof text !== 'string') {
+            try {
+                // Pretty-print JSON objects
+                text = JSON.stringify(text, null, 2);
+            } catch (e) {
+                text = String(text);
+            }
+        }
+        
+        return text
+            .replace(/&/g, '&amp;') // Prevent HTML injection
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') // Bold
+            .replace(/\*([^*]+?)\*/g, '<em>$1</em>')       // Italic
+            .replace(/`(.+?)`/g, '<code>$1</code>')         // Inline code
+            .replace(/\n/g, '<br>');                      // Newlines
+    }
+
+    // Helper to add a log entry to the UI
+    function addLogEntry(node, data) {
+        if (!logContainer) return;
+
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        
+        // Find the node label, or default to the nodeKey
+        const nodeName = nodes[node] ? nodes[node].label : node.toUpperCase();
+        
+        let dataHtml = simpleMarkdownParser(data);
+        
+        entry.innerHTML = `<strong>[${nodeName}]:</strong> ${dataHtml}`;
+        
+        // Find the title element to append after it
+        const logTitle = logContainer.querySelector('.log-title');
+        if (logTitle) {
+            logTitle.insertAdjacentElement('afterend', entry);
+        } else {
+            logContainer.appendChild(entry);
+        }
+        
+        // Auto-scroll to bottom (by scrolling to the new entry)
+        entry.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
+    function setNodeState(nodeId, state) { // state can be 'waiting', 'completed', or 'default'
+        const nodeEl = document.getElementById(nodeId);
+        if (!nodeEl) return;
+        const iconEl = nodeEl.querySelector('.node-icon');
+        if (!iconEl) return;
+
+        // Clear previous states
+        iconEl.classList.remove('is-waiting', 'has-result');
+
+        if (state === 'waiting') {
+            iconEl.classList.add('is-waiting');
+        } else if (state === 'completed') {
+            iconEl.classList.add('has-result');
+        }
+    }
+
+    function updateWorkflowState(completedNodeId) {
+        const completedIndex = agentFlow.indexOf(completedNodeId);
+        
+        if (completedIndex === -1) {
+            if (nodes[completedNodeId]) {
+                setNodeState(completedNodeId, 'completed');
+            }
+            return;
+        }
+
+        setNodeState(completedNodeId, 'completed');
+
+        const nextIndex = completedIndex + 1;
+        if (nextIndex < agentFlow.length) {
+            const nextNodeId = agentFlow[nextIndex];
+            setNodeState(nextNodeId, 'waiting');
+        }
+    }
+    
+    // (MODIFIED) showTooltip now uses styled parser and sets pin class
+    function showTooltip(nodeId, event, isPinned = false) {
+      const result = nodeResults[nodeId];
+      if (!result) return;
+      
+      const node = nodes[nodeId];
+      const tooltipTitle = tooltip.querySelector('.tooltip-title');
+      const tooltipContent = tooltip.querySelector('.tooltip-content');
+      
+      tooltipTitle.textContent = `${node.label} Result`;
+      tooltipContent.innerHTML = simpleMarkdownParser(result); // (MODIFIED) Use parser
+      
+      tooltip.classList.add('show');
+      
+      if (isPinned) {
+        tooltip.classList.add('is-pinned'); // (MODIFIED)
+      } else {
+        tooltip.classList.remove('is-pinned'); // (MODIFIED)
+      }
+      
+      // Position tooltip near cursor
+      const x = event.clientX + 15;
+      const y = event.clientY + 15;
+      
+      // (MODIFIED) Constrain to viewport
+      // Recalculate rect *after* content is set
+      const rect = tooltip.getBoundingClientRect();
+      const newX = Math.min(x, window.innerWidth - rect.width - 20);
+      const newY = Math.min(y, (window.innerHeight - 200) - rect.height - 20); // 200px for log
+      
+      tooltip.style.left = `${newX}px`;
+      tooltip.style.top = `${newY}px`;
+    }
+    
+    // (MODIFIED) hideTooltip respects pinned state
+    function hideTooltip() {
+      if (pinnedTooltipNodeId === null) { // (MODIFIED) Only hide if not pinned
+        tooltip.classList.remove('show');
+        tooltip.classList.remove('is-pinned');
+      }
+    }
+    
+    // Create node elements
+    Object.keys(nodes).forEach(nodeId => {
+      const node = nodes[nodeId];
+      const nodeEl = document.createElement('div');
+      nodeEl.className = 'node';
+      nodeEl.id = nodeId;
+      nodeEl.style.left = `${node.x - 40}px`;
+      nodeEl.style.top = `${node.y - 40}px`;
+      
+      let iconHTML = '';
+      if (node.image) {
+        iconHTML = `<img src="${node.image}" alt="${node.label}" draggable="false">`;
+      } else {
+        iconHTML = `<span style="font-size: 36px;">${node.icon}</span>`;
+      }
+      
+      nodeEl.innerHTML = `
+        <div class="node-content">
+          <div class="node-icon">${iconHTML}</div>
+          <div class="node-label">${node.label}</div>
+        </div>
+      `;
+      
+      nodesContainer.appendChild(nodeEl);
+      
+      // (MODIFIED) Hover: Only show if not pinned
+      nodeEl.addEventListener('mouseenter', (e) => {
+        if (pinnedTooltipNodeId === null) {
+          showTooltip(nodeId, e, false);
+        }
+      });
+      
+      // (MODIFIED) Move: Only move if not pinned
+      nodeEl.addEventListener('mousemove', (e) => {
+        if (pinnedTooltipNodeId === null && nodeResults[nodeId] && !tooltip.classList.contains('show')) {
+            // This case is for when you hover, but the tooltip wasn't shown yet
+            // (e.g., race condition). Show it now.
+            showTooltip(nodeId, e, false);
+        } else if (pinnedTooltipNodeId === null && nodeResults[nodeId]) {
+          // (MODIFIED) Constrain to viewport
+          const rect = tooltip.getBoundingClientRect();
+          const newX = Math.min(e.clientX + 15, window.innerWidth - rect.width - 20);
+          const newY = Math.min(e.clientY + 15, (window.innerHeight - 200) - rect.height - 20);
+          tooltip.style.left = `${newX}px`;
+          tooltip.style.top = `${newY}px`;
+        }
+      });
+      
+      // (MODIFIED) Leave: Only hide if not pinned
+      nodeEl.addEventListener('mouseleave', () => {
+        if (pinnedTooltipNodeId === null) {
+          hideTooltip();
+        }
+      });
+      
+      // (MODIFIED) Logic to separate click from drag
+      let isDragging = false;
+      let dragStarted = false; // (MODIFIED) Flag to check if mouse actually moved
+      let offsetX, offsetY;
+      
+      nodeEl.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        dragStarted = false; // Reset drag flag
+        offsetX = e.clientX - node.x;
+        offsetY = e.clientY - node.y;
+        // Don't hide tooltip here
+      });
+      
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        if (!dragStarted) {
+            // This is the first mousemove after mousedown: DRAG START
+            dragStarted = true;
+            nodeEl.classList.add('dragging');
+            
+            if (pinnedTooltipNodeId === nodeId) {
+                // Dragging the pinned node, so unpin and hide
+                pinnedTooltipNodeId = null;
+                hideTooltip();
+            } else if (pinnedTooltipNodeId === null) {
+                // Dragging a node while another is hovered, hide hover
+                hideTooltip();
+            }
+        }
+        
+        // This is the existing drag-move logic
+        node.x = e.clientX - offsetX;
+        node.y = e.clientY - offsetY;
+        nodeEl.style.left = `${node.x - 40}px`;
+        nodeEl.style.top = `${node.y - 40}px`;
+        drawConnections();
+      });
+      
+      document.addEventListener('mouseup', (e) => {
+        if (isDragging) {
+            isDragging = false;
+            nodeEl.classList.remove('dragging');
+            
+            if (!dragStarted) {
+                // CLICK LOGIC (drag never started)
+                e.stopPropagation(); // Stop document click listener
+                if (pinnedTooltipNodeId === nodeId) {
+                    // Clicked same node: unpin
+                    pinnedTooltipNodeId = null;
+                    hideTooltip();
+                } else {
+                    // Clicked new node: pin
+                    pinnedTooltipNodeId = nodeId;
+                    showTooltip(nodeId, e, true); // Pin it
+                }
+            }
+        }
+      });
+    });
+    
+    // (MODIFIED) Document click listener to close pinned tooltip
+    document.addEventListener('click', (e) => {
+        // (MODIFIED) Check if the click is on the background
+        if (e.target === canvas || e.target === document.body) {
+            if (pinnedTooltipNodeId !== null) {
+                pinnedTooltipNodeId = null;
+                hideTooltip();
+            }
+        }
+    });
+
+    // (MODKNOWN) Stop clicks on the tooltip from closing it
+    tooltip.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+    
+    // Initial draw
+    drawConnections();
+    
+    // --- REAL-TIME DATA LISTENER (v2) ---
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const myRunId = urlParams.get('runId');
+    
+    const processedEvents = new Set();
+
+    /**
+     * (UPDATED) Processes a single event from the history.
+     */
+    function processData(jsonDataString) {
+      try {
+        if (processedEvents.has(jsonDataString)) {
+          return; 
+        }
+
+        const data = JSON.parse(jsonDataString);
+        
+        const nodeKey = data.node ? data.node.toLowerCase() : null;
+
+        if (nodeKey && nodes[nodeKey]) {
+          
+          if (data.result !== undefined) {
+             nodeResults[nodeKey] = data.result;
+             updateWorkflowState(nodeKey); 
+             console.log(`[v2] Processed result for ${nodeKey}:`, data.result);
+             
+             addLogEntry(nodeKey, data.result); // Call the log function
+          }
+
+        } else if (nodeKey === 'error') {
+          console.error("Received error from server:", data.result);
+          addLogEntry('error', data.result); // Log errors too
+        }
+        
+        processedEvents.add(jsonDataString);
+
+      } catch (e) {
+        console.error("Error parsing workflow data", e);
+        addLogEntry('client_error', e.message); // Log parsing errors
+      }
+    }
+    
+    function loadHistoryAndListen() {
+      if (!myRunId) {
+        console.warn("No runId found in URL. Workflow will not receive updates.");
+        addLogEntry('system', 'No runId found in URL. Workflow will not receive updates.'); // Log system warning
+        return;
+      }
+      
+      console.log(`Workflow listening for run ID: ${myRunId}`);
+      addLogEntry('system', `Listening for run ID: ${myRunId}`); // Log system status
+
+      // 1. Load historical data
+      const existingHistory = JSON.parse(localStorage.getItem(myRunId) || '[]');
+      console.log(`Loading ${existingHistory.length} historical events...`);
+      addLogEntry('system', `Loading ${existingHistory.length} historical events...`); // Log system status
+      
+      existingHistory.forEach(jsonDataString => {
+        processData(jsonDataString);
+      });
+
+      // 2. Listen for new storage events
+      window.addEventListener('storage', (event) => {
+        if (event.key === myRunId && event.newValue) {
+          const newHistory = JSON.parse(event.newValue || '[]');
+          
+          newHistory.forEach(jsonDataString => {
+            processData(jsonDataString);
+          });
+        }
+      });
+    }
+    
+    // Start the process
+    loadHistoryAndListen();
+    
+    // Redraw on animation frame for smooth updates
+    function animate() {
+      requestAnimationFrame(animate);
+    }
+    animate();
+  </script>
+</body>
+</html>
+
