@@ -11,6 +11,27 @@ This application keeps `templates/main.html` and `templates/workflow.html` uncha
 - `Skills/postgis_sql_skill.md`: PostGIS exploration, semantic correctness, query-efficiency, and output guidance for the general agent.
 - `metadata/`, `KNOWLEDGE_GRAPH`: original catalog and database metadata.
 
+## GPT-6 Luna API compatibility
+
+The unified ReAct agent defaults to \`gpt-6-luna\` (\`POSTGIS_AGENT_MODEL\` can override it).
+The standalone general Python agent and optional experience manager also default
+to \`gpt-6-luna\`. All model calls use the **Responses API**.
+
+- Main ReAct call: \`reasoning={"effort": "medium"}\`, \`tool_choice="auto"\`,
+  \`parallel_tool_calls=False\`, and one strict \`execute_python\` function schema.
+- Optional experience reflection/consolidation calls: \`reasoning={"effort": "low"}\`,
+  \`max_output_tokens\`, \`store=False\`, and strict \`text.format\` JSON schemas.
+- No call supplies \`temperature\`, \`top_p\`, \`top_logprobs\`, or \`logprobs\`; those
+  sampling/log-probability parameters are incompatible with GPT-6 Luna when
+  reasoning effort is not \`none\`.
+- The model supports both reasoning efforts, Responses function calling,
+  structured outputs, and these request parameters. See the official
+  [GPT-6 Luna model reference](https://developers.openai.com/api/docs/models/gpt-6-luna)
+  and [GPT-6 migration guide](https://developers.openai.com/api/docs/guides/latest-model).
+
+Mock tests check the outgoing request kwargs. Live model-access and database
+end-to-end tests still require valid credentials and the deployment environment.
+
 ## Setup
 
 Install dependencies with `pip install -r requirements.txt`. Set `OPENAI_API_KEY`, `DATABASE_URL` (or `POSTGIS_DATABASE_URL_TEMPLATE`), and optionally `POSTGIS_AGENT_MODEL`. For local development, `python app.py` starts Flask on port 3000. Existing HTML templates are unchanged.
