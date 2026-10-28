@@ -37,15 +37,18 @@ def database_url(database: str) -> str:
     """Select one known database without trusting a user-supplied DSN."""
     if database not in allowed_databases():
         raise ValueError("Unknown database; it must have registered metadata")
+    # UI metadata identifiers do not always match physical PostgreSQL databases.
+    # Keep the UI/metadata key unchanged; resolve only the connection target.
+    physical_database = {"osm_pa": "SpatialBenchmark"}.get(database, database)
     template = os.getenv("POSTGIS_DATABASE_URL_TEMPLATE", "")
     if template:
         if template.count("{database}") != 1:
             raise ValueError("POSTGIS_DATABASE_URL_TEMPLATE needs one {database} placeholder")
-        return template.replace("{database}", database)
+        return template.replace("{database}", physical_database)
     base = os.getenv("DATABASE_URL")
     if not base:
         raise RuntimeError("Set DATABASE_URL or POSTGIS_DATABASE_URL_TEMPLATE for the read-only database role")
-    return make_url(base).set(database=database).render_as_string(hide_password=False)
+    return make_url(base).set(database=physical_database).render_as_string(hide_password=False)
 
 
 def _read_only_select(sql: str) -> bool:
