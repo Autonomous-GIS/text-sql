@@ -18,7 +18,7 @@ from experience_manager import ExperienceManager
 # Configuration
 # =============================================================================
 
-MODEL = "gpt-5.6-luna"
+MODEL = "gpt-6-luna"
 REASONING_EFFORT = "medium"
 
 MAX_AGENT_STEPS = 20
