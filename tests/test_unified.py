@@ -161,3 +161,13 @@ def test_all_responses_create_sites_omit_unsupported_sampling_parameters():
             assert {'model', 'reasoning'}.issubset(keywords)
             calls.append((path.name, keywords))
     assert len(calls) == 3  # main ReAct, experience reflection, experience consolidation
+
+
+def test_osm_pa_uses_spatialbenchmark_database(monkeypatch):
+    monkeypatch.setattr(m, "allowed_databases", lambda: ["osm_pa", "GeoDB"])
+    monkeypatch.delenv("POSTGIS_DATABASE_URL_TEMPLATE", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg2://u:secret@localhost:5432/startdb")
+    assert m.database_url("osm_pa") == "postgresql+psycopg2://u:secret@localhost:5432/SpatialBenchmark"
+    assert m.database_url("GeoDB") == "postgresql+psycopg2://u:secret@localhost:5432/GeoDB"
+    monkeypatch.setenv("POSTGIS_DATABASE_URL_TEMPLATE", "postgresql+psycopg2://u:secret@localhost:5432/{database}")
+    assert m.database_url("osm_pa") == "postgresql+psycopg2://u:secret@localhost:5432/SpatialBenchmark"
