@@ -1,0 +1,9 @@
+Flask>=3.0,<4
+Flask-Cors>=4,<6
+openai>=1.80
+SQLAlchemy>=2.0,<3
+psycopg2-binary>=2.9
+pandas>=2.0
+sqlparse>=0.5
+requests>=2.31
+Pygments>=2.16
