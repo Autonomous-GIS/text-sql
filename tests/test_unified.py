@@ -76,3 +76,88 @@ def test_chat_plan_keeps_the_existing_response_contract(monkeypatch):
     assert response['status']=='plan_ready'
     assert response['query_plan']['target_database']=='GeoDB'
     assert session.state=='PLAN_READY'
+
+
+def test_gpt6_luna_defaults_and_main_responses_parameters(monkeypatch):
+    """Check the actual outgoing Responses request without requiring an API key."""
+    from GeneralAgent import general_python_agent as general_module
+    from GeneralAgent import experience_manager as memory_module
+
+    monkeypatch.delenv('POSTGIS_AGENT_MODEL', raising=False)
+    service = m.UnifiedPostGISService()
+    assert service.model == 'gpt-6-luna'
+    assert general_module.MODEL == 'gpt-6-luna'
+    assert memory_module.DEFAULT_REFLECTION_MODEL == 'gpt-6-luna'
+
+    agent = m.StreamingPostGISAgent(skill_markdown='PostGIS', model=service.model)
+    sent = []
+    agent.client = SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: sent.append(kwargs)))
+    agent._run_model()
+    assert len(sent) == 1
+    request = sent[0]
+    assert request['model'] == 'gpt-6-luna'
+    assert request['reasoning'] == {'effort': 'medium'}
+    assert request['tool_choice'] == 'auto'
+    assert request['parallel_tool_calls'] is False
+    assert request['tools'][0]['strict'] is True
+    assert request['tools'][0]['name'] == 'execute_python'
+    assert {'temperature', 'top_p', 'top_logprobs', 'logprobs'}.isdisjoint(request)
+
+
+def test_gpt6_luna_experience_reflection_request(tmp_path):
+    """Keep the optional experience request valid on the Responses API."""
+    from GeneralAgent.experience_manager import ExperienceManager
+
+    sent = []
+
+    def create(**kwargs):
+        sent.append(kwargs)
+        return SimpleNamespace(output_text='{"changes": []}')
+
+    manager = ExperienceManager(
+        memory_path=tmp_path / 'experiences.json',
+        model='gpt-6-luna',
+        client=SimpleNamespace(responses=SimpleNamespace(create=create)),
+        show_activity=False,
+    )
+    report = manager.reflect({'turns': [[
+        {'role': 'user', 'content': 'Find nearby facilities.'},
+        {'role': 'assistant', 'content': 'A query was returned.'},
+    ]]}, active_skill_key='postgis_sql_skill')
+    assert report.attempted
+    assert len(sent) == 1
+    request = sent[0]
+    assert request['model'] == 'gpt-6-luna'
+    assert request['reasoning'] == {'effort': 'low'}
+    assert request['store'] is False
+    assert request['max_output_tokens'] > 0
+    assert request['text']['format']['type'] == 'json_schema'
+    assert request['text']['format']['strict'] is True
+    assert {'temperature', 'top_p', 'top_logprobs', 'logprobs'}.isdisjoint(request)
+
+
+def test_all_responses_create_sites_omit_unsupported_sampling_parameters():
+    """Verify both reflection and consolidation, even if reflection is disabled."""
+    import ast
+    from pathlib import Path
+
+    root = Path(m.__file__).resolve().parent
+    paths = [
+        root / 'GeneralAgent' / 'general_python_agent.py',
+        root / 'GeneralAgent' / 'experience_manager.py',
+    ]
+    calls = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr == 'create'
+                    and isinstance(func.value, ast.Attribute) and func.value.attr == 'responses'):
+                continue
+            keywords = {keyword.arg for keyword in node.keywords}
+            assert {'temperature', 'top_p', 'top_logprobs', 'logprobs'}.isdisjoint(keywords)
+            assert {'model', 'reasoning'}.issubset(keywords)
+            calls.append((path.name, keywords))
+    assert len(calls) == 3  # main ReAct, experience reflection, experience consolidation
