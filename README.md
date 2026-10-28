@@ -13,17 +13,17 @@ This application keeps `templates/main.html` and `templates/workflow.html` uncha
 
 ## GPT-6 Luna API compatibility
 
-The unified ReAct agent defaults to \`gpt-6-luna\` (\`POSTGIS_AGENT_MODEL\` can override it).
+The unified ReAct agent defaults to `gpt-6-luna` (`POSTGIS_AGENT_MODEL` can override it).
 The standalone general Python agent and optional experience manager also default
-to \`gpt-6-luna\`. All model calls use the **Responses API**.
+to `gpt-6-luna`. All model calls use the **Responses API**.
 
-- Main ReAct call: \`reasoning={"effort": "medium"}\`, \`tool_choice="auto"\`,
-  \`parallel_tool_calls=False\`, and one strict \`execute_python\` function schema.
-- Optional experience reflection/consolidation calls: \`reasoning={"effort": "low"}\`,
-  \`max_output_tokens\`, \`store=False\`, and strict \`text.format\` JSON schemas.
-- No call supplies \`temperature\`, \`top_p\`, \`top_logprobs\`, or \`logprobs\`; those
+- Main ReAct call: `reasoning={"effort": "medium"}`, `tool_choice="auto"`,
+  `parallel_tool_calls=False`, and one strict `execute_python` function schema.
+- Optional experience reflection/consolidation calls: `reasoning={"effort": "low"}`,
+  `max_output_tokens`, `store=False`, and strict `text.format` JSON schemas.
+- No call supplies `temperature`, `top_p`, `top_logprobs`, or `logprobs`; those
   sampling/log-probability parameters are incompatible with GPT-6 Luna when
-  reasoning effort is not \`none\`.
+  reasoning effort is not `none`.
 - The model supports both reasoning efforts, Responses function calling,
   structured outputs, and these request parameters. See the official
   [GPT-6 Luna model reference](https://developers.openai.com/api/docs/models/gpt-6-luna)
